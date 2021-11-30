@@ -1,0 +1,57 @@
+#!/bin/bash
+
+# Get the go files em stage
+GO_FILES=$(git diff --cached --name-only -- '*.go')
+
+# Coverage file name
+CONVER_FILE="cover-commit.out"
+
+# Coverage minimal value
+CONVER_VALUE=80
+
+# Check if have go files in stage, case yes, apply go format on files and run the go tests.
+if [[ $GO_FILES != "" ]]; then
+    for file in $GO_FILES; do
+    echo "$file"
+        # Formate the go files
+        go fmt $file
+        # Add the formated files
+        git add $file
+    done
+
+    # Run tests with race condition checker
+    GO_TEST=$(go test -race -v -coverprofile $CONVER_FILE ./...)
+
+    # Validate race condition
+    REGEX_DATA_RACE="race detected"
+    
+    if [[ $GO_TEST =~ $REGEX_DATA_RACE ]]; then
+        echo "The code has a race condition, please, solve it!"
+        rm $CONVER_FILE
+        exit 1
+    fi
+
+    #Validate test fail
+    REGEX_TEST_FAIL="FAIL"
+
+    if [[ $GO_TEST =~ $REGEX_TEST_FAIL ]]; then
+        echo "One or more tests failed."
+        rm $CONVER_FILE
+        exit 1
+    fi
+
+    # Check the coverage
+    COVERAGE=$(go tool cover -func $CONVER_FILE | grep total:)
+
+    REGEX_COVERAGE="[[:digit:]]+"
+
+    if [[ $COVERAGE =~ $REGEX_COVERAGE ]]; then
+        if [[((${BASH_REMATCH[0]} -lt $CONVER_VALUE))]]; then
+            echo "The tests conerage is less than the allowed: ${BASH_REMATCH[0]}%"
+            echo "The coverage needs be greater than $CONVER_VALUE%"
+            rm $CONVER_FILE
+            exit 1      
+        fi
+    fi
+    rm $CONVER_FILE
+fi
